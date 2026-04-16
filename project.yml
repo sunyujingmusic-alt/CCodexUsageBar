@@ -1,0 +1,26 @@
+name: CCodexUsageBar
+options:
+  deploymentTarget:
+    macOS: "12.0"
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: net.ccodex.usagebar
+    PRODUCT_NAME: CCodexUsageBar
+    SWIFT_VERSION: 6.0
+    MACOSX_DEPLOYMENT_TARGET: 12.0
+    INFOPLIST_FILE: Resources/Info.plist
+    CODE_SIGNING_ALLOWED: NO
+packages: {}
+targets:
+  CCodexUsageBar:
+    type: application
+    platform: macOS
+    sources:
+      - Sources
+    resources:
+      - Resources
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: NO
+        LSUIElement: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
