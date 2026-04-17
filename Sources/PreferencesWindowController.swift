@@ -84,7 +84,7 @@ private struct PreferencesView: View {
                 }
             }
 
-            Text("登录改为通过菜单栏中的“登录…”完成；首次登录后，App 会自己保存 token 并自动续期。")
+            Text("登录通过菜单栏中的“登录…”完成；首次登录后，App 会复用当前会话，并在需要时使用记住的密码自动重登。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
 

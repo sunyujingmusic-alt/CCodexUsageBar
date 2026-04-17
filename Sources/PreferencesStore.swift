@@ -5,8 +5,8 @@ final class PreferencesStore {
         static let baseURL = "baseURL"
         static let timezone = "timezone"
         static let refreshInterval = "refreshInterval"
-        static let tokenExpiresAt = "tokenExpiresAt"
         static let rememberPassword = "rememberPassword"
+        static let loggedInUserID = "loggedInUserID"
     }
 
     private let defaults: UserDefaults
@@ -34,23 +34,20 @@ final class PreferencesStore {
         set { defaults.set(newValue, forKey: Keys.refreshInterval) }
     }
 
-    var tokenExpiresAt: TimeInterval? {
-        get {
-            let value = defaults.double(forKey: Keys.tokenExpiresAt)
-            return value > 0 ? value : nil
-        }
-        set {
-            if let newValue {
-                defaults.set(newValue, forKey: Keys.tokenExpiresAt)
-            } else {
-                defaults.removeObject(forKey: Keys.tokenExpiresAt)
-            }
-        }
-    }
-
     var rememberPassword: Bool {
         get { defaults.object(forKey: Keys.rememberPassword) as? Bool ?? true }
         set { defaults.set(newValue, forKey: Keys.rememberPassword) }
+    }
+
+    var loggedInUserID: String? {
+        get { defaults.string(forKey: Keys.loggedInUserID)?.nilIfEmpty }
+        set {
+            if let value = newValue?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                defaults.set(value, forKey: Keys.loggedInUserID)
+            } else {
+                defaults.removeObject(forKey: Keys.loggedInUserID)
+            }
+        }
     }
 
     private func registerDefaults() {
@@ -60,5 +57,11 @@ final class PreferencesStore {
             Keys.refreshInterval: 120.0,
             Keys.rememberPassword: true,
         ])
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

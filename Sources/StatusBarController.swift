@@ -6,7 +6,6 @@ final class StatusBarController: NSObject {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
     private let preferences: PreferencesStore
-    private let tokenStore: KeychainTokenStore
     private let api: CCodexAPI
     private let authManager: AuthManager
 
@@ -23,9 +22,8 @@ final class StatusBarController: NSObject {
     private let updatedItem = NSMenuItem(title: "更新时间：--", action: nil, keyEquivalent: "")
     private let statusItemMessage = NSMenuItem(title: "状态：待刷新", action: nil, keyEquivalent: "")
 
-    init(preferences: PreferencesStore, tokenStore: KeychainTokenStore, api: CCodexAPI, authManager: AuthManager) {
+    init(preferences: PreferencesStore, api: CCodexAPI, authManager: AuthManager) {
         self.preferences = preferences
-        self.tokenStore = tokenStore
         self.api = api
         self.authManager = authManager
         super.init()
@@ -95,11 +93,11 @@ final class StatusBarController: NSObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                let token = try await self.authManager.ensureValidAccessToken()
+                let userID = try await self.authManager.ensureValidSessionUserID()
                 let snapshot = try await self.api.fetchSnapshot(
                     baseURL: self.preferences.baseURL,
                     timezone: self.preferences.timezoneIdentifier,
-                    token: token
+                    userID: userID
                 )
                 self.state = .loaded(snapshot)
                 self.render()
@@ -132,9 +130,9 @@ final class StatusBarController: NSObject {
             statusItemMessage.title = "状态：\(message)"
         case .loaded(let snapshot):
             statusItem.button?.title = titleForMenuBar(snapshot: snapshot)
-            usedItem.title = "今日已消费：\(Self.money(snapshot.totalActualCost))"
-            limitItem.title = "今日上限：\(snapshot.dailyLimitUSD.map(Self.money) ?? "--")"
-            remainingItem.title = "今日剩余：\(snapshot.remainingUSD.map(Self.money) ?? "--")"
+            usedItem.title = "今日已消费：\(Self.money(snapshot.totalActualCost, symbol: snapshot.currencySymbol))"
+            limitItem.title = "今日上限：\(snapshot.dailyLimitUSD.map { Self.money($0, symbol: snapshot.currencySymbol) } ?? "--")"
+            remainingItem.title = "今日剩余：\(snapshot.remainingUSD.map { Self.money($0, symbol: snapshot.currencySymbol) } ?? "--")"
             groupItem.title = "套餐组：\(snapshot.groupName ?? "--")"
             updatedItem.title = "更新时间：\(Self.time(snapshot.fetchedAt))"
             statusItemMessage.title = "状态：已同步"
@@ -146,9 +144,9 @@ final class StatusBarController: NSObject {
             return "额度 --"
         }
         if remaining >= 0 {
-            return "余 \(Self.shortMoney(remaining))"
+            return "余 \(Self.shortMoney(remaining, symbol: snapshot.currencySymbol))"
         } else {
-            return "超 \(Self.shortMoney(abs(remaining)))"
+            return "超 \(Self.shortMoney(abs(remaining), symbol: snapshot.currencySymbol))"
         }
     }
 
@@ -201,14 +199,25 @@ final class StatusBarController: NSObject {
     private func shouldPromptLogin(for error: Error) -> Bool {
         if let authError = error as? AuthManagerError {
             switch authError {
-            case .notLoggedIn, .requiresTwoFactor:
+            case .notLoggedIn, .twoFactorManualReloginRequired:
                 return true
-            case .invalidLoginResponse:
+            case .invalidLoginResponse, .twoFactorCodeRequired:
                 return false
             }
         }
-        let nsError = error as NSError
-        return nsError.domain == "CCodexAPI" && nsError.code == 401
+        if let apiError = error as? CCodexAPIError {
+            switch apiError {
+            case .unauthorized:
+                return true
+            case .httpStatus(let statusCode, _):
+                return statusCode == 401 || statusCode == 403
+            case .apiFailure(let code, _):
+                return code == 401 || code == 403
+            case .invalidResponse, .missingData, .decodingFailed:
+                return false
+            }
+        }
+        return false
     }
 
     private func userFacingMessage(for error: Error) -> String {
@@ -218,12 +227,12 @@ final class StatusBarController: NSObject {
         return error.localizedDescription
     }
 
-    private static func money(_ value: Double) -> String {
-        String(format: "$%.2f", value)
+    private static func money(_ value: Double, symbol: String) -> String {
+        String(format: "%@%.2f", symbol, value)
     }
 
-    private static func shortMoney(_ value: Double) -> String {
-        String(format: "$%.2f", value)
+    private static func shortMoney(_ value: Double, symbol: String) -> String {
+        String(format: "%@%.2f", symbol, value)
     }
 
     private static func time(_ date: Date) -> String {

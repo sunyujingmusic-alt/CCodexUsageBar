@@ -4,9 +4,9 @@ A minimal macOS menu bar app that shows your **remaining CCodex daily quota**.
 
 It is designed for one very specific job:
 
-- read today's usage from `https://ccodex.net/usage`
-- calculate the remaining daily quota
-- keep that number available from the macOS menu bar
+- log into the current `https://ccodex.net` console
+- read the current quota / usage data from the New API endpoints the site now uses
+- keep the most useful remaining amount available from the macOS menu bar
 
 The UI is intentionally small and quiet.
 
@@ -52,149 +52,72 @@ So this project extracts the dashboard's key usage number and turns it into a na
 
 # Research Summary
 
-## Target page
+## Current site shape
 
-- Dashboard usage page: `https://ccodex.net/usage`
+CCodex has moved away from the old `/usage` + `/api/v1/...` stack.
 
-## Important visible numbers on the page
+The useful console pages are now under:
 
-The dashboard presents several stats, but the critical one is:
+- `https://ccodex.net/login`
+- `https://ccodex.net/console`
+- `https://ccodex.net/console/log`
+- `https://ccodex.net/console/token`
 
-- **总消费** (the large displayed total cost)
+The old endpoints such as `/api/v1/usage/stats` and `/api/v1/subscriptions/active` are no longer the right basis for the app.
 
-That value is the one most useful for day-to-day quota decisions.
+## Backend endpoints currently used by this app
 
-## Actual backend endpoints used by the page
-
-### 1. Usage stats
+The menu bar app now works from the site’s newer API surface:
 
 ```http
-GET /api/v1/usage/stats?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD&timezone=Asia/Shanghai
+POST /api/user/login
+GET  /api/user/self
+GET  /api/status
+GET  /api/log/self/stat
+GET  /api/subscription/self
 ```
 
 Important fields:
 
-- `data.total_actual_cost` → the large displayed cost on the page
-- `data.total_cost` → standard cost
-- `data.total_requests`
-- `data.total_input_tokens`
-- `data.total_output_tokens`
-- `data.total_cache_tokens`
-- `data.average_duration_ms`
+- `/api/user/login` → establishes the authenticated session cookie and returns the current user id
+- `/api/user/self` → validates the current session and provides the group / fallback quota fields
+- `/api/status` → provides `quota_per_unit`, currency display settings, and exchange metadata
+- `/api/log/self/stat` → provides the current log/quota aggregate used for the main “已消费” value
+- `/api/subscription/self` → provides total/used subscription quota used for limit + remaining display
 
-### 2. Active subscription
+## Authentication model
 
-```http
-GET /api/v1/subscriptions/active?timezone=Asia/Shanghai
-```
+The current site is **not** driven by a reusable bearer access token in this app.
 
-Important fields:
+The working native flow is:
 
-- `data[0].group.daily_limit_usd` → daily limit
-- `data[0].daily_usage_usd` → backend daily usage field
-- `data[0].group.name` → subscription/group name
-- `data[0].group.rate_multiplier` → rate multiplier
-
----
-
-## Which number should be treated as the real "used today" number?
-
-This project intentionally uses:
-
-```json
-usage.stats.data.total_actual_cost
-```
-
-Reason:
-
-- it is the number the dashboard emphasizes visually
-- it matches the mental model of "how much have I actually spent today?"
-- it is the most useful value for menu-bar level decision support
-
-### Why not use `daily_usage_usd` as the primary number?
-
-Observed behavior showed:
-
-- `daily_usage_usd` is often closer to `total_cost`
-- the large dashboard number is `total_actual_cost`
-- when a multiplier is in play, `total_actual_cost` can differ significantly from `daily_usage_usd`
-
-So for user-facing quota awareness, this app treats:
-
-- `total_actual_cost` as the primary "used" value
-- `daily_limit_usd` as the hard cap
-- `remaining = daily_limit_usd - total_actual_cost`
-
----
-
-# Authentication Research
-
-## The site is token-based, not cookie-based
-
-The dashboard session is not primarily maintained through browser cookies.
-
-Relevant browser-side storage includes:
-
-- `localStorage.auth_token`
-- `localStorage.refresh_token`
-- `localStorage.auth_user`
-
-That means the correct architecture for a native app is:
-
-- log in with account credentials
-- obtain `access_token` and `refresh_token`
-- store them locally
-- refresh automatically when needed
-
-## Official auth endpoints
-
-### Login
-
-```http
-POST /api/v1/auth/login
-```
-
-Request body:
+1. `POST /api/user/login` with:
 
 ```json
 {
-  "email": "...",
+  "username": "email-or-username",
   "password": "..."
 }
 ```
 
-### Refresh token
+2. the server returns basic user data including the user id
+3. the server also sets a `session` cookie
+4. subsequent authenticated requests must include both:
+   - the session cookie
+   - `New-API-User: <user id>`
 
-```http
-POST /api/v1/auth/refresh
-```
+In other words: **cookie-backed session + `New-API-User` header** is the key combination.
 
-Request body:
+## Data model used in the menu bar
 
-```json
-{
-  "refresh_token": "..."
-}
-```
+The app currently displays:
 
-### Expected auth flow
+- consumed amount → primarily from `/api/log/self/stat`
+- limit / remaining → from `/api/subscription/self`
+- currency symbol / quota conversion → from `/api/status`
+- group name → from `/api/user/self`
 
-1. user logs in with email + password
-2. app receives:
-   - `access_token`
-   - `refresh_token`
-   - `expires_in`
-3. app stores them locally
-4. usage requests use:
-
-```http
-Authorization: Bearer <access_token>
-```
-
-5. on token expiry / 401:
-   - call `/auth/refresh`
-   - update tokens
-   - retry usage fetch
+When `quota_per_unit` is present, the app converts raw quota to display currency before rendering the menu.
 
 ---
 
@@ -289,20 +212,22 @@ Responsible for:
 Responsible for:
 
 - native login with email/password
-- saving tokens after successful login
-- checking whether the current access token is still usable
-- refreshing tokens when necessary
-- optionally reusing saved credentials when refresh fails
+- persisting the logged-in user id for `New-API-User`
+- validating whether the current cookie-backed session is still usable
+- optionally reusing saved credentials when the session expires
+- clearing session cookies and local login state on logout
 
 ### `CCodexAPI.swift`
 
 Responsible for:
 
-- calling `/api/v1/auth/login`
-- calling `/api/v1/auth/refresh`
-- calling `/api/v1/usage/stats`
-- calling `/api/v1/subscriptions/active`
+- calling `/api/user/login`
+- calling `/api/user/self`
+- calling `/api/status`
+- calling `/api/log/self/stat`
+- calling `/api/subscription/self`
 - assembling the final `QuotaSnapshot`
+- reusing the same `URLSession` so the login cookie survives follow-up requests
 
 ### `LoginWindowController.swift`
 
@@ -327,8 +252,8 @@ Stores user preferences such as:
 - base URL
 - timezone
 - refresh interval
-- token expiry timestamp
 - remember-password preference
+- logged-in user id
 
 ### `KeychainTokenStore.swift`
 
@@ -336,8 +261,6 @@ Historical name retained in code, but the current implementation uses a local ap
 
 It stores:
 
-- access token
-- refresh token
 - email
 - password (optional)
 
@@ -372,9 +295,9 @@ This model is what the menu bar ultimately renders.
 The current implementation uses:
 
 - native login inside the app
-- access token + refresh token storage
-- automatic token refresh
-- optional saved password for silent relogin if refresh fails
+- a cookie-backed session maintained by one shared `URLSession`
+- stored user id for the `New-API-User` request header
+- optional saved password for silent relogin if the session expires
 
 ## Why save password optionally?
 
@@ -382,13 +305,13 @@ There are two possible user experience levels:
 
 ### More secure
 
-- store only refresh token
-- ask for password again if refresh becomes invalid
+- store only the cookie-backed session state in memory
+- ask for password again when the session expires
 
 ### More hands-off
 
 - also store email/password locally
-- re-login automatically if refresh fails
+- re-login automatically when the session expires
 
 This project currently supports the second option because the original goal favored low-friction personal use.
 
@@ -406,7 +329,7 @@ The app refreshes:
 
 ## Error states
 
-If refresh fails, the app can show:
+If session validation or re-login fails, the app can show:
 
 - `额度 --`
 - login prompt
@@ -451,13 +374,16 @@ Output:
 
 ```text
 build/CCodexUsageBar.app
+build/CCodexUsageBar-universal.zip
 ```
 
-The current script builds:
+The current script now does one thing by default:
 
-1. `arm64-apple-macos12.0`
-2. `x86_64-apple-macos12.0`
-3. combines them with `lipo`
+1. build `arm64-apple-macos12.0`
+2. build `x86_64-apple-macos12.0`
+3. combine them into one Universal 2 app with `lipo`
+4. package that single app as `CCodexUsageBar-universal.zip`
+5. clear the old build directory first, so stale per-arch outputs do not remain
 
 ## Optional XcodeGen workflow
 
@@ -529,7 +455,7 @@ During development, storing credentials through the local app-controlled file pa
 
 ## 5. Universal 2 packaging
 
-The app is now built for both Apple Silicon and Intel Macs.
+The app is now distributed as a single Universal 2 build for both Apple Silicon and Intel Macs.
 
 ---
 

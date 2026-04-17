@@ -10,7 +10,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let authManager = AuthManager(preferences: preferences, tokenStore: tokenStore, api: api)
         statusBarController = StatusBarController(
             preferences: preferences,
-            tokenStore: tokenStore,
             api: api,
             authManager: authManager
         )

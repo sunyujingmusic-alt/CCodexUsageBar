@@ -2,8 +2,6 @@ import Foundation
 
 final class KeychainTokenStore {
     private struct Storage: Codable {
-        var accessToken: String?
-        var refreshToken: String?
         var email: String?
         var password: String?
     }
@@ -18,25 +16,14 @@ final class KeychainTokenStore {
         self.fileURL = dir.appendingPathComponent("credentials.json")
     }
 
-    func loadAccessToken() -> String? { queue.sync { loadStorage().accessToken } }
-    func loadRefreshToken() -> String? { queue.sync { loadStorage().refreshToken } }
     func loadEmail() -> String? { queue.sync { loadStorage().email } }
     func loadPassword() -> String? { queue.sync { loadStorage().password } }
 
-    func saveAccessToken(_ value: String) throws { try update { $0.accessToken = value } }
-    func saveRefreshToken(_ value: String) throws { try update { $0.refreshToken = value } }
     func saveEmail(_ value: String) throws { try update { $0.email = value } }
     func savePassword(_ value: String) throws { try update { $0.password = value } }
 
-    func clearAccessToken() throws { try update { $0.accessToken = nil } }
-    func clearRefreshToken() throws { try update { $0.refreshToken = nil } }
     func clearEmail() throws { try update { $0.email = nil } }
     func clearPassword() throws { try update { $0.password = nil } }
-
-    func clearSession() throws {
-        try clearAccessToken()
-        try clearRefreshToken()
-    }
 
     private func update(_ mutate: (inout Storage) -> Void) throws {
         try queue.sync {
