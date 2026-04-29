@@ -382,8 +382,25 @@ The current script now does one thing by default:
 1. build `arm64-apple-macos12.0`
 2. build `x86_64-apple-macos12.0`
 3. combine them into one Universal 2 app with `lipo`
-4. package that single app as `CCodexUsageBar-universal.zip`
-5. clear the old build directory first, so stale per-arch outputs do not remain
+4. verify the final bundle contains both `arm64` and `x86_64`
+5. verify `CFBundleExecutable` and `LSMinimumSystemVersion`
+6. package that single app as `CCodexUsageBar-universal.zip`
+7. clear the old build directory first, so stale per-arch outputs do not remain
+
+### Validation commands
+
+After building, you can double-check the result with:
+
+```bash
+file build/CCodexUsageBar.app/Contents/MacOS/CCodexUsageBar
+lipo -info build/CCodexUsageBar.app/Contents/MacOS/CCodexUsageBar
+```
+
+Expected result:
+
+- app binary is a **Mach-O universal binary**
+- architectures include **`arm64`** and **`x86_64`**
+- minimum supported macOS stays **12.0**
 
 ## Optional XcodeGen workflow
 
