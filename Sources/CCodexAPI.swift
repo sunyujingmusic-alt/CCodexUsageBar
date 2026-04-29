@@ -52,9 +52,12 @@ final class CCodexAPI {
         let currency = CurrencyDisplay(status: status)
 
         let todayUsed = currency.convertQuota(stat.quota ?? userSelf.usedQuota ?? 0)
-        let activeSubscription = subscriptionSelf.subscriptions.first?.subscription
-        let dailyLimit = activeSubscription?.amountTotal.map(currency.convertQuota(_:))
-        let subscriptionUsed = activeSubscription?.amountUsed.map(currency.convertQuota(_:))
+        let activeSubscriptions = subscriptionSelf.subscriptions.compactMap(\ .subscription).filter(\ .isActive)
+        let totalAmountRaw = activeSubscriptions.compactMap(\ .amountTotal).reduce(0, +)
+        let usedAmountRaw = activeSubscriptions.compactMap(\ .amountUsed).reduce(0, +)
+        let hasActiveSubscription = !activeSubscriptions.isEmpty
+        let dailyLimit = hasActiveSubscription ? currency.convertQuota(totalAmountRaw) : nil
+        let subscriptionUsed = hasActiveSubscription ? currency.convertQuota(usedAmountRaw) : nil
         let remaining = dailyLimit.flatMap { limit in
             subscriptionUsed.map { limit - $0 }
         }

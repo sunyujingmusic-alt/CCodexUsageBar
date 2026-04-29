@@ -161,6 +161,11 @@ struct SubscriptionSummary: Decodable {
     let nextResetTime: String?
     let status: String?
 
+    var isActive: Bool {
+        let normalized = (status ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "active" || normalized.contains("生效")
+    }
+
     enum CodingKeys: String, CodingKey {
         case amountTotal = "amount_total"
         case amountUsed = "amount_used"
